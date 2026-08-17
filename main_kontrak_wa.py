@@ -185,8 +185,23 @@ BASE_SYSTEM_PROMPT = (
     "3. Selalu gunakan LIMIT maksimal 50 baris\n"
     "4. Gunakan JOIN yang tepat antar tabel\n"
     "5. Format angka nilai kontrak dalam format Indonesia (Rp)\n"
+    "\n⚠️ ATURAN KRITIS — WAJIB QUERY DATABASE, JANGAN JAWAB DARI INGATAN:\n"
+    "SETIAP pertanyaan yang menyebut data spesifik (tanggal, nilai, status, progress, nama, jumlah)\n"
+    "WAJIB menggunakan type='query' dan SQL — TIDAK BOLEH dijawab dari ingatan atau estimasi.\n"
+    "Ini berlaku meskipun konteks entitas sudah diinjeksi. Konteks entitas HANYA boleh dipakai\n"
+    "untuk mendapatkan ID (id_kontrak, id_vendor, dll) yang dimasukkan ke WHERE clause SQL.\n"
+    "JANGAN PERNAH jadikan nilai dari konteks entitas (status, tanggal, nilai) sebagai jawaban final.\n"
+    "Contoh BENAR: user tanya tanggal kontrak → generate SQL SELECT tanggal_mulai, tanggal_selesai\n"
+    "              FROM kontrak WHERE id_kontrak = '<id dari konteks>'\n"
+    "Contoh SALAH: jawab tanggal langsung dari konteks tanpa eksekusi SQL.\n"
+    "\ntype='narrative' HANYA boleh dipakai untuk:\n"
+    "- Sapaan (halo, selamat pagi, dsb)\n"
+    "- Ucapan terima kasih\n"
+    "- Pertanyaan tentang kemampuan AI\n"
+    "- Pertanyaan yang BENAR-BENAR tidak butuh data dari DB\n"
+    "Semua pertanyaan lain → type='query'.\n"
     "\nATURAN INTERPRETASI ENTITAS:\n"
-    "- Jika ada blok 'KONTEKS ENTITAS YANG DITEMUKAN DI DATABASE' -> gunakan langsung, JANGAN minta klarifikasi\n"
+    "- Jika ada blok 'KONTEKS ENTITAS YANG DITEMUKAN DI DATABASE' -> gunakan ID-nya untuk WHERE clause SQL\n"
     "- Jika user menyebut nama yang diawali PT/CV/UD -> cari di vendor.nama_vendor\n"
     "- Jika user menyebut kode seperti MA5, KOM-001 -> cari di direksi_pekerjaan atau no_dokumen_kontrak\n"
     "- Jika entitas tidak ditemukan di konteks -> baru boleh minta klarifikasi\n"
@@ -1074,6 +1089,20 @@ def run_wa(question: str, sender: str) -> str:
         # ── NARRATIVE (sapaan, info umum, dsb) ──
         if response_type == "narrative":
             answer = parsed.get("message", raw)
+            # Safety net: kalau pertanyaan minta data spesifik tapi AI balas narrative,
+            # tambahkan disclaimer agar user tahu jawaban belum diverifikasi dari DB
+            DATA_KEYWORDS = {
+                'tanggal', 'nilai', 'progress', 'status', 'berapa', 'kapan',
+                'siapa', 'kontrak', 'tagihan', 'vendor', 'amandemen', 'selesai',
+                'mulai', 'durasi', 'harga', 'bayar', 'laporan', 'sla'
+            }
+            question_words = set(re.findall(r'\b\w+\b', question.lower()))
+            if question_words & DATA_KEYWORDS:
+                answer += (
+                    "\n\n⚠️ _Jawaban di atas belum diverifikasi dari database. "
+                    "Tanyakan lebih spesifik (misalnya sebut nama kontrak atau vendor) "
+                    "agar saya bisa mengambil data yang akurat._"
+                )
             add_history(sender, question, answer)
             return answer
 
