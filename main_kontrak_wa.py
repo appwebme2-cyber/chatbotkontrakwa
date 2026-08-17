@@ -33,31 +33,65 @@ SCHEMA_CONTEXT = """
 Database PostgreSQL untuk sistem manajemen kontrak kilang minyak. Berikut skema tabel:
 
 TABEL: profiles
-Kolom: id, email, full_name, role (admin/pic/user), password_hash, created_at, updated_at, is_active, id_vendor
+Kolom: id, email, full_name, role (admin/pic/user/vendor/external), password_hash, created_at, updated_at, is_active, id_vendor
 
 TABEL: vendor
 Kolom: id_vendor, nama_vendor, npwp, alamat, pic_nama, pic_kontak, status_vendor (Active/Inactive/Blacklist), score, created_at, updated_at
 
+TABEL: direksi_pekerjaan
+Kolom: id_direksi_pekerjaan, nama, jabatan (Manager Maintenance Execution I/Manager Maintenance Execution II/Pengawas Pekerjaan), sub_area (SH Maintenance Area 5/SH Maintenance Area 6/SH Maintenance Area 7/Workshop), created_at, updated_at
+Catatan: Tabel master nama & jabatan direksi/pengawas. Kolom direksi_pekerjaan di tabel kontrak berisi NAMA ORANG (string bebas), bukan kode area seperti MA5/MA6.
+
+TABEL: program_kerja
+Kolom: id_program_kerja, nama (Rutin/Non Rutin/TA/OH), created_at, updated_at
+
+TABEL: planner
+Kolom: id_planner, nama (P&S/OH/TA), created_at, updated_at
+
 TABEL: kontrak
-Kolom: id_kontrak, id_vendor, judul_kontrak, no_dokumen_kontrak, no_po_pr, direksi_pekerjaan,
-  tipe_kontrak (Lumpsum/Unit Price/TSA/LTSA/TSA-LTSA), status_kontrak (Pre-KOM/Aktif/Selesai/Terminated),
+Kolom: id_kontrak, id_vendor, judul_kontrak, no_dokumen_kontrak, no_po_pr, no_irkap, direksi_pekerjaan,
+  program_kerja, planner, kbo_bagian,
+  tipe_kontrak (Lumpsum/Unit Price/TSA/LTSA/TSA/LTSA), status_kontrak (Pre-KOM/Aktif/Active/Selesai/Completed/Terminated),
   tanggal_spb_diterima, tanggal_terima_dokumen, tanggal_maksimal_kom, tanggal_mulai, tanggal_selesai,
   sla_kom_hari, estimasi_tanggal_kom, tanggal_kom, kom_terlambat, nilai_awal, durasi_kontrak_hari,
   progress_plan, progress_actual, aktivitas_saat_ini, kendala, disiplin, tkdn_percentage, tanggal_lkp,
+  tanggal_mpl, tanggal_mpa, masa_pemeliharaan_hari,
   has_amendment, no_amandemen, tanggal_amandemen, jenis_amandemen, nilai_kontrak_baru, durasi_amandemen,
-  tanggal_mulai_baru, tanggal_selesai_baru, alasan_perubahan, created_at, updated_at
+  tanggal_mulai_baru, tanggal_selesai_baru, alasan_perubahan,
+  contract_documents (JSON), amendment_documents (JSON), s_curve_data (JSON),
+  created_at, updated_at
 
 TABEL: amandemen_kontrak
 Kolom: id_amandemen, id_kontrak, nomor_urut, no_amandemen, tanggal_amandemen, jenis_amandemen,
   nilai_kontrak_baru, durasi_amandemen, tanggal_mulai_baru, tanggal_selesai_baru, alasan_perubahan,
-  created_at, updated_at
+  amendment_documents (JSON), created_at, updated_at
 
 TABEL: tagihan
 Kolom: id_tagihan, id_kontrak, nomor_tagihan, tanggal_tagihan, tipe_kontrak, termin, nilai_tagihan,
-  status_tagihan, memo_required, tanggal_pengiriman_memo, catatan, created_at, updated_at
+  status_tagihan, memo_required, tanggal_pengiriman_memo, dokumen_memo, dokumen_tagihan, catatan, created_at, updated_at
+
+TABEL: sla_tagihan
+Kolom: id, id_kontrak, id_tagihan,
+  tgl_masuk_ba_joint_inspection, tgl_selesai_ba_joint_inspection,
+  tgl_masuk_ba_commissioning, tgl_selesai_ba_commissioning,
+  tgl_masuk_ba_penerimaan_material, tgl_selesai_ba_penerimaan_material,
+  tgl_masuk_lkp, tgl_selesai_lkp,
+  tgl_masuk_bast, tgl_selesai_bast,
+  tgl_masuk_bakp, tgl_selesai_bakp,
+  tgl_masuk_ivendor, tgl_selesai_ivendor,
+  tgl_masuk_sa, tgl_selesai_sa,
+  tgl_masuk_pa, tgl_selesai_pa,
+  tgl_masuk_verifikasi, tgl_selesai_verifikasi,
+  tgl_masuk_payment, tgl_selesai_payment,
+  created_at, updated_at
+Catatan: Tracking tanggal masuk & selesai per tahap untuk satu tagihan.
+
+TABEL: sla_setting
+Kolom: kode_tahap, batas_hari, warning_persen
+Catatan: Konfigurasi batas hari dan ambang peringatan (%) per tahap SLA tagihan.
 
 TABEL: progress_lumpsum
-Kolom: id_progress, id_kontrak, milestone, persen, tanggal_update, created_at
+Kolom: id_progress, id_kontrak, milestone, persen, tanggal_update, evidence, created_at
 
 TABEL: progress_unit_price
 Kolom: id_progress, id_kontrak, nama_item, satuan, qty_rencana, qty_aktual, harga_satuan, tanggal_update, created_at
@@ -68,17 +102,28 @@ Kolom: id_log, id_kontrak, tanggal_kunjungan, jenis_layanan (Preventive/Correcti
 
 TABEL: padi
 Kolom: id_padi, no_pembelian, tanggal, judul_pembelian, no_po_pr, nilai, id_vendor, link_pembelian,
-  bagian, status_purchase (BAST), tanggal_bast, tanggal_sa_gr, tanggal_invoice,
+  bagian, dokumen_pendukung, status_purchase (BAST), tanggal_bast, tanggal_sa_gr, tanggal_invoice,
   tanggal_payment_approval, tanggal_paid, catatan_status, created_at, updated_at
 
 TABEL: dokumen_approval
 Kolom: id_dokumen, id_kontrak, tipe_dokumen (Evident/Report/Persetujuan), nama_dokumen,
-  deskripsi_dokumen, status_approval (Pending/Approved/Rejected), catatan_reviewer,
+  deskripsi_dokumen, file_path, file_url, nama_file, tipe_file, ukuran_file,
+  status_approval (Pending/Approved/Rejected), catatan_reviewer,
   uploaded_by, reviewed_by, reviewed_at, created_at, updated_at
+
+TABEL: daily_report
+Kolom: id_report, tanggal_laporan, disiplin, kategori, deskripsi, direksi, tag_number,
+  status_pekerjaan, catatan, pengirim_wa, raw_text, created_at
+Catatan: Laporan harian kegiatan maintenance. Diisi via fitur #laporan di WhatsApp.
+
+TABEL: konfigurasi_sistem
+Kolom: id_setting, nama_setting, nilai_setting, deskripsi, updated_at
 
 Relasi penting:
 - vendor.id_vendor -> kontrak.id_vendor (1 vendor banyak kontrak)
 - kontrak.id_kontrak -> tagihan.id_kontrak
+- kontrak.id_kontrak -> sla_tagihan.id_kontrak
+- tagihan.id_tagihan -> sla_tagihan.id_tagihan
 - kontrak.id_kontrak -> amandemen_kontrak.id_kontrak
 - kontrak.id_kontrak -> progress_lumpsum.id_kontrak
 - kontrak.id_kontrak -> progress_unit_price.id_kontrak
@@ -90,11 +135,16 @@ NILAI ENUM & PILIHAN YANG VALID:
 
 1. TIPE KONTRAK: 'Lumpsum', 'Unit Price', 'TSA', 'LTSA', 'TSA/LTSA'
 
-2. STATUS KONTRAK: 'Pre-KOM', 'Aktif', 'Selesai', 'Terminated'
+2. STATUS KONTRAK: 'Pre-KOM', 'Aktif', 'Active', 'Selesai', 'Completed', 'Terminated'
+   PENTING: 'Aktif' dan 'Active' adalah sinonim — gunakan OR saat filter status aktif.
+   Begitu pula 'Selesai' dan 'Completed'. Contoh: WHERE status_kontrak IN ('Aktif', 'Active')
 
-3. DISIPLIN: 'Instrumentasi', 'Stationary', 'Electrical', 'Rotating', 'Alat Berat'
+3. DISIPLIN: 'Instrument', 'Instrumentasi', 'Stationary', 'Electrical', 'Rotating', 'Alat Berat'
+   PENTING: 'Instrument' dan 'Instrumentasi' adalah nilai yang sama — gunakan ILIKE '%instru%' atau OR.
 
-4. DIREKSI PEKERJAAN: 'MA5', 'MA6', 'MA7', 'Workshop'
+4. DIREKSI PEKERJAAN: Field kontrak.direksi_pekerjaan berisi NAMA ORANG/JABATAN (bukan kode MA5/MA6).
+   Untuk filter berdasarkan area, JOIN ke tabel direksi_pekerjaan dan filter kolom sub_area.
+   Sub_area valid: 'SH Maintenance Area 5', 'SH Maintenance Area 6', 'SH Maintenance Area 7', 'Workshop'
 
 5. JENIS AMANDEMEN: 'Nilai', 'Waktu', 'Nilai dan Waktu'
 
@@ -104,8 +154,22 @@ NILAI ENUM & PILIHAN YANG VALID:
 
 8. JENIS LAYANAN LTSA: 'Preventive', 'Corrective', 'Standby'
 
-9. STATUS TAGIHAN (urutan tahapan):
-   Punchlist -> BAST/BAPP -> Pengajuan -> BAST I Vendor -> SA -> PA -> Verification -> Payment/Selesai
+9. TAHAPAN SLA TAGIHAN — 11 tahap (kolom di tabel sla_tagihan, format: tgl_masuk_X / tgl_selesai_X):
+   1. ba_joint_inspection     2. ba_commissioning        3. ba_penerimaan_material
+   4. lkp                     5. bast                    6. bakp
+   7. ivendor                 8. sa                      9. pa
+   10. verifikasi             11. payment
+   Tahap dianggap selesai jika tgl_selesai_X tidak NULL. Durasi = tgl_selesai - tgl_masuk.
+   Bandingkan dengan batas_hari di tabel sla_setting (kode_tahap sesuai nama tahap).
+
+10. KATEGORI DAILY REPORT: 'Corrective Maintenance', 'Preventive Maintenance', 'Plant Patrol',
+    'Progress', 'Challenge Session', 'Support'
+
+11. STATUS PEKERJAAN (daily_report): 'Done', 'In Progress', 'Waiting Material', 'Pending', '-'
+
+12. PROGRAM KERJA: 'Rutin', 'Non Rutin', 'TA', 'OH'
+
+13. PLANNER: 'P&S', 'OH', 'TA'
 """
 
 # ─── 4. SYSTEM PROMPT ─────────────────────────────────────────────────────────
