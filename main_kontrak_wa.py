@@ -254,7 +254,12 @@ def smart_entity_search(user_message: str) -> str:
         company_patterns = re.findall(
             r'\b(?:PT|CV|UD|TB|PD)\s+[\w\s]+', user_message, re.IGNORECASE
         )
-        search_terms = list(set(words + company_patterns))
+        # Tangkap pola tag number equipment (contoh: 101-P-105, 105-FV-020, 101A514)
+        tag_patterns = re.findall(
+            r'\b\d{2,3}-[A-Z]{1,3}-\d{3,}\b|\b\d{3}[A-Z]\d{3,}\b',
+            user_message, re.IGNORECASE
+        )
+        search_terms = list(set(words + company_patterns + tag_patterns))
 
         for term in search_terms:
             term = term.strip()
@@ -335,6 +340,44 @@ def smart_entity_search(user_message: str) -> str:
                     context.append(
                         f"[PADI] '{p[2]}' -> id_padi={p[0]}, "
                         f"no_pembelian={p[1]}, nilai={p[3]}, vendor='{p[4]}'"
+                    )
+
+            # ── Cari di tabel direksi_pekerjaan ───────────────────────
+            cur.execute("""
+                SELECT id_direksi_pekerjaan, nama, jabatan, sub_area
+                FROM direksi_pekerjaan
+                WHERE nama    ILIKE %s
+                   OR jabatan ILIKE %s
+                   OR sub_area ILIKE %s
+                LIMIT 3
+            """, (f'%{term}%', f'%{term}%', f'%{term}%'))
+            for d in cur.fetchall():
+                key = f"direksi_{d[0]}"
+                if key not in found_ids:
+                    found_ids.add(key)
+                    context.append(
+                        f"[DIREKSI] '{d[1]}' -> id_direksi_pekerjaan={d[0]}, "
+                        f"jabatan={d[2]}, sub_area={d[3]}"
+                    )
+
+            # ── Cari di tabel daily_report (tag number & deskripsi) ───
+            cur.execute("""
+                SELECT dr.id_report, dr.tag_number, dr.deskripsi,
+                       dr.tanggal_laporan, dr.disiplin, dr.status_pekerjaan
+                FROM daily_report dr
+                WHERE dr.tag_number ILIKE %s
+                   OR dr.deskripsi  ILIKE %s
+                ORDER BY dr.tanggal_laporan DESC
+                LIMIT 3
+            """, (f'%{term}%', f'%{term}%'))
+            for dr in cur.fetchall():
+                key = f"daily_{dr[0]}"
+                if key not in found_ids:
+                    found_ids.add(key)
+                    context.append(
+                        f"[DAILY REPORT] tag='{dr[1]}' -> id_report={dr[0]}, "
+                        f"deskripsi='{str(dr[2])[:60]}', tgl={dr[3]}, "
+                        f"disiplin={dr[4]}, status={dr[5]}"
                     )
 
         conn.close()
