@@ -596,6 +596,75 @@ def is_junk_entry(item: dict) -> bool:
     return False
 
 
+# ─── Cache direksi patterns (dibaca dari DB sekali, dipakai ulang) ──────────
+_direksi_patterns_cache: dict = {}
+
+def _build_area_patterns(num: str, normalized: str) -> dict:
+    return {
+        rf'\bMA\s*{num}\b':                    normalized,
+        rf'[Mm]aintenance\s+[Aa]rea\s*{num}':  normalized,
+        rf'[Aa]rea\s*{num}\b':                 normalized,
+        rf'[Bb]agian\s*{num}\b':               normalized,
+    }
+
+def get_direksi_patterns() -> dict:
+    """
+    Baca nilai direksi dari tabel daily_report dan direksi_pekerjaan,
+    bangun regex-pattern → normalized_value secara dinamis.
+    Di-cache setelah pemanggilan pertama. Fallback ke hardcode jika DB kosong.
+    """
+    global _direksi_patterns_cache
+    if _direksi_patterns_cache:
+        return _direksi_patterns_cache
+
+    fallback: dict = {r'\bWorkshop\b': "Workshop"}
+    for n in ["5", "6", "7"]:
+        fallback.update(_build_area_patterns(n, f"MA{n}"))
+
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        cur  = conn.cursor()
+
+        cur.execute(
+            "SELECT DISTINCT direksi FROM daily_report "
+            "WHERE direksi IS NOT NULL AND direksi <> '' ORDER BY direksi"
+        )
+        known = [r[0].strip() for r in cur.fetchall()]
+
+        cur.execute(
+            "SELECT DISTINCT sub_area FROM direksi_pekerjaan "
+            "WHERE sub_area IS NOT NULL AND sub_area <> ''"
+        )
+        sub_areas = [r[0].strip() for r in cur.fetchall()]
+        conn.close()
+
+        patterns: dict = {}
+        for val in known:
+            m = re.match(r'^MA\s*(\d+)$', val, re.IGNORECASE)
+            if m:
+                patterns.update(_build_area_patterns(m.group(1), f"MA{m.group(1)}"))
+            elif val.lower() == "workshop":
+                patterns[r'\bWorkshop\b'] = "Workshop"
+            elif val:
+                patterns[rf'\b{re.escape(val)}\b'] = val
+
+        for sub in sub_areas:
+            m = re.search(r'[Aa]rea\s*(\d+)', sub)
+            if m:
+                patterns.update(_build_area_patterns(m.group(1), f"MA{m.group(1)}"))
+            elif re.search(r'\bWorkshop\b', sub, re.IGNORECASE):
+                patterns[r'\bWorkshop\b'] = "Workshop"
+
+        _direksi_patterns_cache = patterns if patterns else fallback
+        print(f"[DIREKSI PATTERNS] {len(_direksi_patterns_cache)} pattern dimuat dari DB")
+        return _direksi_patterns_cache
+
+    except Exception as e:
+        print(f"[DIREKSI PATTERNS] Fallback ke hardcode: {e}")
+        _direksi_patterns_cache = fallback
+        return _direksi_patterns_cache
+
+
 def extract_laporan_header(raw_text: str) -> dict:
     """
     Ekstrak header laporan (tanggal, semua disiplin, direksi) secara regex
@@ -632,15 +701,8 @@ def extract_laporan_header(raw_text: str) -> dict:
         if "Instrument" not in header["disiplin"]:
             header["disiplin"].append("Instrument")
 
-    # ── Direksi / Area ─────────────────────────────────────────────────────────
-    DIREKSI_MAP = {
-        r'\bMA\s*7\b': "MA7", r'\bMA\s*6\b': "MA6", r'\bMA\s*5\b': "MA5",
-        r'[Mm]aintenance\s+[Aa]rea\s*7': "MA7",
-        r'[Mm]aintenance\s+[Aa]rea\s*6': "MA6",
-        r'[Mm]aintenance\s+[Aa]rea\s*5': "MA5",
-        r'\bWorkshop\b': "Workshop",
-    }
-    for pattern, val in DIREKSI_MAP.items():
+    # ── Direksi / Area — pattern dibaca dinamis dari DB ───────────────────────
+    for pattern, val in get_direksi_patterns().items():
         if re.search(pattern, raw_text):
             header["direksi"] = val
             break
@@ -845,16 +907,9 @@ def insert_daily_report(items: list, pengirim_wa: str, raw_text: str) -> tuple:
     if not items:
         return 0, "Tidak ada item yang bisa diparse", [], []
 
-    # Fallback direksi dari raw_text kalau item tidak punya
+    # Fallback direksi dari raw_text kalau item tidak punya — pattern dari DB
     fallback_direksi = ""
-    DIREKSI_MAP_FB = {
-        r'\bMA\s*7\b': "MA7", r'\bMA\s*6\b': "MA6", r'\bMA\s*5\b': "MA5",
-        r'[Mm]aintenance\s+[Aa]rea\s*7': "MA7",
-        r'[Mm]aintenance\s+[Aa]rea\s*6': "MA6",
-        r'[Mm]aintenance\s+[Aa]rea\s*5': "MA5",
-        r'\bWorkshop\b': "Workshop",
-    }
-    for pat, val in DIREKSI_MAP_FB.items():
+    for pat, val in get_direksi_patterns().items():
         if re.search(pat, raw_text):
             fallback_direksi = val
             break
